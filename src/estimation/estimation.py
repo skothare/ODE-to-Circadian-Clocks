@@ -19,7 +19,7 @@ def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 
 
 def simulate_model(params: LGParams, y0: Sequence[float], t_eval: np.ndarray):
-    sol = solve_ivp(lambda t, y: f(t, y, params), (t_eval[0], t_eval[-1]), y0, t_eval=t_eval)
+    sol = solve_ivp(lambda t, y: f(t, y, params), (t_eval[0], t_eval[-1]), y0, t_eval=t_eval, method='LSODA')
     if not sol.success:
         raise RuntimeError(sol.message)
     return sol.y
@@ -41,45 +41,94 @@ def theta_to_params(theta: np.ndarray, template: LGParams | None = None) -> LGPa
     return p
 
 
+from scipy.interpolate import interp1d
+
 def residuals_for_theta(theta: np.ndarray, t_obs: np.ndarray, y_obs: np.ndarray,
                         param_template: LGParams | None = None,
                         observed_states: Sequence[int] | None = None,
-                        y0: Sequence[float] | None = None) -> np.ndarray:
-    """Return flattened residuals between observed timecourses and model predictions.
-
-    theta -> LGParams is performed using `theta_to_params`; the ODE is simulated on
-    `t_obs` and the residual is computed only on the supplied `observed_states` (a list
-    of state indices from the model). If `observed_states` is None we assume the rows of
-    `y_obs` match the first rows of the model output.
+                        y0: Sequence[float] | None = None) -> float:
+    """Return scalar loss (RMSE-like) for a proposed theta using limit cycle matching.
+    
+    Simulates the model to steady state (limit cycle), then finds the best phase shift
+    and compares Z-scores of the model and data.
     """
-    # normalise inputs
-    t_obs = np.asarray(t_obs)
-    y_obs = np.asarray(y_obs)
-    if y_obs.ndim == 2 and y_obs.shape[0] == t_obs.size:
-        # shape (n_times, n_genes) -> transpose to (n_genes, n_times)
-        y_obs = y_obs.T
-
-    # Map theta to params
-    params = theta_to_params(np.asarray(theta, dtype=float), param_template)
+    # 1. Update Parameters
+    params = theta_to_params(theta, param_template)
+    
     if y0 is None:
         y0 = default_initial_conditions(n_states=19)
 
-    y_pred = simulate_model(params, y0, t_obs)  # shape (n_states, n_times)
+    # 2. SPIN UP: Simulate long enough to reach limit cycle (e.g., 500h)
+    # We simulate extra time to cover the data window after spin-up
+    t_spinup = 500
+    t_window = t_obs[-1] - t_obs[0] + 24 # Window size + extra day for shifting
+    t_total = t_spinup + t_window
+    
+    try:
+        # Simulate on a dense grid for accurate interpolation
+        t_eval = np.linspace(0, t_total, 2000)
+        # Use LSODA for stiffness
+        sol = solve_ivp(lambda t, y: f(t, y, params), (0, t_total), y0, t_eval=t_eval, method='LSODA')
+        if not sol.success:
+             return 1e6
+    except RuntimeError:
+        return 1e6 # Penalty for failure
 
+    # 3. EXTRACT LIMIT CYCLE (Last part of simulation)
+    # We only care about the data after t=500
+    mask = t_eval > t_spinup
+    t_steady = t_eval[mask] - t_spinup # Reset time to 0 relative to spinup
+    y_steady = sol.y[:, mask]
+    
+    # 4. PHASE MATCHING via Cross-Correlation (or simple sliding)
+    # Instead of optimizing 'phi' as a parameter (which is hard), 
+    # we can calculate residuals at the BEST phase shift for this gene.
+    
+    residuals = []
+    
     # which states to compare? default: first n rows of y_pred
     if observed_states is None:
-        if y_obs.shape[0] <= y_pred.shape[0]:
+        if y_obs.shape[0] <= y_steady.shape[0]:
             observed_states = list(range(y_obs.shape[0]))
         else:
             raise ValueError("y_obs contains more states than the model. Provide observed_states.")
 
-    y_pred_sel = y_pred[observed_states, :]
+    # Extract just the relevant model states
+    y_model_subset = y_steady[observed_states, :] # Shape (n_states, n_points)
+    
+    # Ensure y_obs is (n_states, n_times)
+    if y_obs.ndim == 2 and y_obs.shape[1] != t_obs.size and y_obs.shape[0] == t_obs.size:
+         y_obs = y_obs.T
 
-    # ensure shapes match
-    if y_pred_sel.shape != y_obs.shape:
-        raise ValueError(f"Observed data shape {y_obs.shape} does not match prediction {y_pred_sel.shape}")
+    for i, row_obs in enumerate(y_obs): # For each gene (Per, Cry, etc.)
+        row_model = y_model_subset[i, :]
+        
+        # Create interpolator for the model curve
+        # We wrap the time to handle the cycle (optional, but linear interp is safer here)
+        model_func = interp1d(t_steady, row_model, kind='cubic', fill_value="extrapolate")
+        
+        # Try a few phase shifts (0h to 24h) to find the best alignment
+        shifts = np.linspace(0, 24, 24) 
+        best_gene_resid = np.inf
+        
+        for phi in shifts:
+            # Get model prediction at observed times + phase shift
+            pred = model_func(t_obs + phi)
+            
+            # 5. SCALE-FREE COMPARISON (Z-Score)
+            # Normalize both to Mean=0, Std=1. 
+            # This forces the optimizer to match SHAPE and PERIOD, not Amplitude.
+            pred_z = (pred - np.mean(pred)) / (np.std(pred) + 1e-9)
+            obs_z  = (row_obs - np.mean(row_obs)) / (np.std(row_obs) + 1e-9)
+            
+            res = np.sum((pred_z - obs_z)**2)
+            if res < best_gene_resid:
+                best_gene_resid = res
+                
+        residuals.append(best_gene_resid)
 
-    return (y_pred_sel - y_obs).ravel()
+    # Return scalar sum of squares (for differential_evolution)
+    return np.sqrt(np.sum(residuals))
 
 
 def fit_local(theta0, bounds, data, param_template: LGParams | None = None,
@@ -125,15 +174,11 @@ def fit_global(bounds, data, param_template: LGParams | None = None,
     Bounds should be a list of (low, high) per parameter.
     """
     def scalar_obj(th):
-        try:
-            resids = residuals_for_theta(th, data[0], data[1], param_template, observed_states, y0)
-            return float(np.sqrt(np.mean(resids ** 2)))
-        except Exception:
-            return 1e6
+        return residuals_for_theta(th, data[0], data[1], param_template, observed_states, y0)
 
     res = differential_evolution(scalar_obj, bounds, maxiter=maxiter, popsize=popsize)
     # attach the RMSE
-    res.rmse = scalar_obj(res.x)
+    res.rmse = res.fun
     return res
 
 
