@@ -1,47 +1,80 @@
 # ODE-to-Circadian-Clocks
-This repository implements the Leloup–Goldbeter mammalian circadian ODE model, data and parameter-estimation workflows for GEO dataset GSE48113, identifiability analyses, and scaffolds for machine learning extensions (Neural ODEs and SINDy). The project is organized around three aims from the proposal:
-1. Implement and verify the mechanistic Leloup–Goldbeter model in Python (clean ODE module, default parameter set, and tests validating oscillatory behavior).
-2. Build a reproducible pipeline to preprocess GSE48113 and estimate model parameters using local and global optimization.
-3. Evaluate identifiability and do an ML-mech comparison (profile likelihoods, sensitivity analyses, Neural ODE and SINDy comparisons).
 
-## Structure
+Modeling human circadian clock dynamics using mechanistic ODEs and data-driven approaches (SINDy, Neural ODEs).
 
-- Data policy
-1. Run `notebooks/01_load_GSE48113.ipynb` which downloads and converts GSE48113 to a processed CSV
+## Overview
 
----
+This repository implements three modeling paradigms for the human circadian clock:
 
-## Running notebooks (local)
+1. **Mechanistic ODE Model** - Leloup-Goldbeter 19-equation model encoding PER/CRY/BMAL1/REV-ERB feedback loops
+2. **SINDy** - Sparse Identification of Nonlinear Dynamics with biological priors
+3. **Neural ODEs** - Fully data-driven continuous-time dynamics learning
 
-Notebooks expect the repository to be importable so they can reuse code in `src/`. There are two ways to make that work locally:
+We use the GSE48113 human blood transcriptome dataset (287 microarray samples, 22 subjects) to fit and compare these approaches.
 
-- Start the notebook from the repository root (so `Path.cwd()` is the repo root) or
-- Keep the kernel working directory in a subfolder (e.g., `notebooks/`) but ensure the first cell sets the repo root and adds `src` to `sys.path` (we add this in each notebook). Example snippet that notebooks include:
+## Project Structure
 
-```py
-from pathlib import Path
-import sys
-cwd = Path.cwd()
-if (cwd / 'src').exists():
-	ROOT = cwd
-else:
-	ROOT = cwd.parent
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / 'src'))
-import importlib
-importlib.invalidate_caches()
+```
+├── models/                    # Model implementations
+│   ├── ode/                   # Mechanistic ODE model
+│   │   ├── leloup_goldbeter.py      # 19-equation Leloup-Goldbeter model
+│   │   ├── estimation/              # Parameter estimation utilities
+│   │   ├── run_02_estimation.py     # Main estimation script
+│   │   ├── 03_identifiability_analysis.py
+│   │   └── summarize_fit.py
+│   ├── neural_ode/            # Neural ODE implementation
+│   │   └── neuralODE.ipynb          # Training and evaluation
+│   └── sindy/                 # SINDy implementation
+│       ├── 04_sindy.ipynb           # SINDy analysis notebook
+│       └── sindy_skeleton.py
+├── preprocessing/             # Data preprocessing
+│   ├── 01_load_GSE48113.ipynb       # Data loading
+│   ├── datapeek.ipynb               # Data exploration
+│   ├── sindy_data_preproc.ipynb     # SINDy-specific preprocessing
+│   └── process_data.py              # Preprocessing utilities
+├── scripts/                   # Utility scripts
+│   ├── debug_model.py
+│   └── extract_metrics.py
+├── figures/                   # Generated plots
+├── data/                      # Raw and processed data (gitignored)
+└── sindy,tex.sty              # LaTeX report
 ```
 
-If you prefer a global solution, also install this repo editable to your environment:
+## Key Results
 
-```powershell
-pip install -e .
-```
+| Model | Key Finding |
+|-------|-------------|
+| Leloup-Goldbeter | Captures ~24h periodicity with biologically consistent phase relationships |
+| SINDy | One-step predictions work; free-run simulations fail to sustain oscillations |
+| Neural ODE | Fits smooth curves but cannot recover intrinsic periodicity |
 
-Note: If you add new modules to `src/` after starting the notebook kernel, restart the kernel or call `importlib.invalidate_caches()`.
+## Getting Started
 
----
+1. **Install dependencies**:
 
-## Roadmap & milestones
+   ```bash
+   pip install numpy scipy pandas matplotlib torch torchdiffeq pysindy
+   ```
 
-See `ROADMAP.md` for the week-by-week plan and milestones. Create GitHub issues from these milestones to track progress.
+2. **Download data**:
+   Run `preprocessing/01_load_GSE48113.ipynb` to download and process GSE48113.
+
+3. **Run estimation**:
+
+   ```bash
+   cd models/ode
+   python run_02_estimation.py
+   ```
+
+## Authors
+
+- Achyudhan Kutuva (University of Pittsburgh, Carnegie Mellon University)
+- Arth Banka (Carnegie Mellon University)
+- Riti Bhatia (Carnegie Mellon University)
+- Sanchitha Kuthethoor (Carnegie Mellon University)
+- Sumeet Kothare (Carnegie Mellon University)
+
+## References
+
+- Leloup & Goldbeter (2004) - Mammalian circadian clock model
+- Archer et al. (2014) - GSE48113 dataset
