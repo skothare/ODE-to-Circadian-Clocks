@@ -7,7 +7,7 @@ from typing import Sequence
 from scipy.optimize import differential_evolution, least_squares
 from scipy.integrate import solve_ivp
 
-from src.models.leloup_goldbeter import f, default_initial_conditions, LGParams
+from models.ode.leloup_goldbeter import f, default_initial_conditions, LGParams
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:

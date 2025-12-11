@@ -12,34 +12,6 @@ This repository implements three modeling paradigms for the human circadian cloc
 
 We use the GSE48113 human blood transcriptome dataset (287 microarray samples, 22 subjects) to fit and compare these approaches.
 
-## Project Structure
-
-```
-├── models/                    # Model implementations
-│   ├── ode/                   # Mechanistic ODE model
-│   │   ├── leloup_goldbeter.py      # 19-equation Leloup-Goldbeter model
-│   │   ├── estimation/              # Parameter estimation utilities
-│   │   ├── run_02_estimation.py     # Main estimation script
-│   │   ├── 03_identifiability_analysis.py
-│   │   └── summarize_fit.py
-│   ├── neural_ode/            # Neural ODE implementation
-│   │   └── neuralODE.ipynb          # Training and evaluation
-│   └── sindy/                 # SINDy implementation
-│       ├── 04_sindy.ipynb           # SINDy analysis notebook
-│       └── sindy_skeleton.py
-├── preprocessing/             # Data preprocessing
-│   ├── 01_load_GSE48113.ipynb       # Data loading
-│   ├── datapeek.ipynb               # Data exploration
-│   ├── sindy_data_preproc.ipynb     # SINDy-specific preprocessing
-│   └── process_data.py              # Preprocessing utilities
-├── scripts/                   # Utility scripts
-│   ├── debug_model.py
-│   └── extract_metrics.py
-├── figures/                   # Generated plots
-├── data/                      # Raw and processed data (gitignored)
-└── sindy,tex.sty              # LaTeX report
-```
-
 ## Key Results
 
 | Model | Key Finding |
@@ -47,24 +19,6 @@ We use the GSE48113 human blood transcriptome dataset (287 microarray samples, 2
 | Leloup-Goldbeter | Captures ~24h periodicity with biologically consistent phase relationships |
 | SINDy | One-step predictions work; free-run simulations fail to sustain oscillations |
 | Neural ODE | Fits smooth curves but cannot recover intrinsic periodicity |
-
-## Getting Started
-
-1. **Install dependencies**:
-
-   ```bash
-   pip install numpy scipy pandas matplotlib torch torchdiffeq pysindy
-   ```
-
-2. **Download data**:
-   Run `preprocessing/01_load_GSE48113.ipynb` to download and process GSE48113.
-
-3. **Run estimation**:
-
-   ```bash
-   cd models/ode
-   python run_02_estimation.py
-   ```
 
 ## Authors
 

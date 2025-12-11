@@ -14,114 +14,128 @@ from models.ode.leloup_goldbeter import f, default_initial_conditions, LGParams
 from models.ode.estimation.estimation import residuals_for_theta, theta_to_params
 
 def profile_likelihood(param_name, param_index, theta_opt, t_obs, y_obs, 
-                       bounds, range_factor=0.5, num_points=15):
+                       bounds, range_factor=0.5, num_points=21):
     """
     Compute profile likelihood for a single parameter.
+    Scans on both sides of the MLE to assess practical identifiability.
     
     Args:
         param_name: Name of parameter (for plotting)
         param_index: Index in theta vector
-        theta_opt: Optimal parameter vector
+        theta_opt: Optimal parameter vector (initial estimate of MLE)
         range_factor: How far to scan (+/- range_factor around optimal)
-        num_points: Number of points to scan
+        num_points: Number of points to scan (odd number ensures MLE is included)
     """
     print(f"\nComputing profile for {param_name} (theta[{param_index}])...")
-    
-    opt_val = theta_opt[param_index]
-    # Scan range (log scale if parameter is strictly positive usually better, but linear for now)
-    # Using linear range around optimum
-    scan_vals = np.linspace(opt_val * (1 - range_factor), opt_val * (1 + range_factor), num_points)
-    
-    # Store results
-    profiles = []
     
     # Base setup
     p0 = LGParams()
     y0 = default_initial_conditions()
     observed_states = [0, 3, 6, 9]
     
-    # Wrapper for optimization of OTHER parameters
-    # We fix theta[param_index] = fixed_val, optimize others
+    # First, compute loss at the provided optimum (this is our MLE estimate)
+    mle_val = theta_opt[param_index]
+    mle_loss = residuals_for_theta(theta_opt, t_obs, y_obs, p0, observed_states, y0)
+    print(f"  MLE estimate: {mle_val:.4f}, loss: {mle_loss:.4f}")
     
+    # Wrapper for optimization of OTHER parameters (nuisance parameters)
     def constrained_loss(theta_subset, fixed_val, p_idx):
-        # Reconstruct full theta
-        # theta_subset has size N-1
         theta_full = np.insert(theta_subset, p_idx, fixed_val)
         return residuals_for_theta(theta_full, t_obs, y_obs, p0, observed_states, y0)
 
-    # Initial guess for other parameters is the optimal vector minus the fixed one
-    theta_others_opt = np.delete(theta_opt, param_index)
+    # Initial guess for nuisance parameters
+    theta_others_mle = np.delete(theta_opt, param_index)
+    
+    # Create scan values centered on MLE
+    # Ensure we include the MLE value itself
+    lower = mle_val * (1 - range_factor)
+    upper = mle_val * (1 + range_factor)
+    
+    # Create scan points on each side of MLE
+    n_each_side = num_points // 2
+    left_vals = np.linspace(lower, mle_val, n_each_side + 1)[:-1]  # exclude MLE
+    right_vals = np.linspace(mle_val, upper, n_each_side + 1)  # include MLE
+    
+    # Scan outward from MLE for better continuation
+    results = {}
+    
+    # Add MLE point
+    results[mle_val] = mle_loss
+    
+    # Scan RIGHT from MLE (ascending)
+    print(f"  Scanning right from MLE...")
+    current_guess = theta_others_mle.copy()
+    for val in right_vals[1:]:  # skip MLE, already added
+        res = minimize(constrained_loss, current_guess, args=(val, param_index),
+                       method='Nelder-Mead', options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-4})
+        results[val] = res.fun
+        current_guess = res.x  # warm start
+        print(f"    val={val:.4f}, loss={res.fun:.4f}")
+    
+    # Scan LEFT from MLE (descending)
+    print(f"  Scanning left from MLE...")
+    current_guess = theta_others_mle.copy()
+    for val in left_vals[::-1]:  # descend from MLE
+        res = minimize(constrained_loss, current_guess, args=(val, param_index),
+                       method='Nelder-Mead', options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-4})
+        results[val] = res.fun
+        current_guess = res.x
+        print(f"    val={val:.4f}, loss={res.fun:.4f}")
+    
+    # Sort results by parameter value
+    scan_vals = np.array(sorted(results.keys()))
+    costs = np.array([results[v] for v in scan_vals])
 
-    best_chi2 = residuals_for_theta(theta_opt, t_obs, y_obs, p0, observed_states, y0)**2
-    threshold = best_chi2 + 3.84 # 95% CI for 1 DOF (chi-square distribution)
     
-    # Sort scan values relative to the optimum for continuation
-    # We scan outwards from the optimum to keep the guess valid
-    scan_vals = np.sort(scan_vals)
-    opt_idx = np.searchsorted(scan_vals, opt_val)
+    # Compute delta NLLH: difference from minimum
+    # For RMSE-based loss, convert to approximate log-likelihood scale
+    # NLLH ≈ 0.5 * n * log(RSS/n) where RSS = n * RMSE^2
+    # Simplified: just use squared RMSE as proxy for chi-squared
+    costs_sq = costs ** 2  # Squared RMSE ~ sum of squared residuals
+    min_cost_sq = np.min(costs_sq)
+    delta_nllh = costs_sq - min_cost_sq  # Delta from minimum
     
-    # Split into left (descending from opt) and right (ascending from opt)
-    left_scan = scan_vals[:opt_idx][::-1]
-    right_scan = scan_vals[opt_idx:]
+    # 95% CI threshold for chi-squared with 1 DOF = 3.84
+    # For profile likelihood: threshold at delta = 1.92 (half the chi-sq critical value)
+    threshold_delta = 1.92
     
-    # Helper to run scan
-    def run_scan(vals, initial_guess):
-        results_map = {}
-        current_guess = initial_guess.copy()
-        
-        for val in vals:
-            # Local optimization for others
-            # Increased maxiter to 500 for better convergence
-            res = minimize(constrained_loss, current_guess, args=(val, param_index),
-                           method='Nelder-Mead', options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-4})
-            
-            cost = res.fun**2 
-            results_map[val] = cost
-            # Update guess for next step (continuation)
-            current_guess = res.x
-            print(f"  val={val:.4f}, cost={cost:.4f}")
-        return results_map
-
-    # Run both sides
-    print(f"  Scanning right...")
-    res_right = run_scan(right_scan, theta_others_opt)
-    
-    print(f"  Scanning left...")
-    res_left = run_scan(left_scan, theta_others_opt)
-    
-    # Combine
-    results_map = {**res_right, **res_left}
-    sorted_vals = np.array(sorted(results_map.keys()))
-    costs = np.array([results_map[v] for v in sorted_vals])
-    
-    # For plotting, use sorted_vals and costs
-    scan_vals = sorted_vals
+    # Find where the minimum occurs
+    min_idx = np.argmin(costs_sq)
+    min_param_val = scan_vals[min_idx]
         
     # Plot
     plt.figure(figsize=(6, 4))
-    plt.plot(scan_vals, costs, 'b.-')
-    plt.axhline(threshold, color='r', linestyle='--', label='95% threshold')
-    plt.plot(opt_val, best_chi2, 'ro', label='Optimum')
+    plt.plot(scan_vals, delta_nllh, 'b.-', linewidth=1.5, markersize=8)
+    plt.axhline(threshold_delta, color='r', linestyle='--', label='95% CI threshold')
+    plt.axvline(min_param_val, color='g', linestyle=':', alpha=0.7)
+    plt.scatter([min_param_val], [0], color='red', s=100, zorder=5, label=f'MLE ({min_param_val:.3f})')
     plt.xlabel(param_name)
-    plt.ylabel('Objective Function (Chi-squared)')
+    plt.ylabel('$\\Delta$ NLLH')
     plt.title(f'Profile Likelihood: {param_name}')
+    plt.ylim(bottom=-0.1)  # Ensure minimum is visible at 0
     plt.legend()
     plt.tight_layout()
-    plt.savefig(f'../figures/qc_preprocessing/profile_{param_name}.png')
+    plt.savefig(ROOT / f'figures/profile_{param_name}.png', dpi=150)
+    plt.close()
     
-    # Check identifiability
-    # If it crosses threshold on both sides -> Identifiable
+    # Check identifiability based on delta NLLH
+    # If profile crosses threshold on both sides of MLE -> Identifiable
     # If flat or doesn't cross -> Non-identifiable
-    min_cost = np.min(costs)
-    crossings = np.where(np.diff(np.sign(np.array(costs) - threshold)))[0]
+    crossings = np.where(np.diff(np.sign(delta_nllh - threshold_delta)))[0]
+    
+    # Check if MLE is at or near the minimum of the profile
+    mle_in_scan = np.argmin(np.abs(scan_vals - mle_val))
     
     status = "Identifiable"
     if len(crossings) < 2:
-        if costs[0] < threshold or costs[-1] < threshold:
-             status = "Practically Non-Identifiable"
+        # Doesn't cross threshold on both sides
+        status = "Practically Non-Identifiable"
+    elif delta_nllh[0] < threshold_delta or delta_nllh[-1] < threshold_delta:
+        # Threshold not exceeded at boundaries
+        status = "Practically Non-Identifiable"
              
     print(f"  Status: {status}")
-    return scan_vals, costs, status
+    return scan_vals, delta_nllh, status
 
 # --- Load Data and Best Parameters ---
 # NOTE: This assumes we have a 'best parameters' file or we hardcode from previous run
