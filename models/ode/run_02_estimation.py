@@ -7,17 +7,17 @@ from scipy.interpolate import interp1d
 from scipy.integrate import solve_ivp
 
 # Setup paths
-ROOT = Path.cwd()
-if str(ROOT / 'src') not in sys.path:
-    sys.path.insert(0, str(ROOT / 'src'))
+# Setup paths
+ROOT = Path.cwd().parent.parent  # models/ode -> models -> ROOT
+sys.path.insert(0, str(ROOT))
 
-from src.models.leloup_goldbeter import f, default_initial_conditions, LGParams
-from src.estimation.estimation import residuals_for_theta, theta_to_params, fit_global, simulate_model
+from models.ode.leloup_goldbeter import f, default_initial_conditions, LGParams
+from models.ode.estimation.estimation import residuals_for_theta, theta_to_params, fit_global, simulate_model
 
 print("Loading real data...")
 # Load metadata and expression matrix
-meta = pd.read_csv('data/processed/sample_metadata.csv')
-expr = pd.read_csv('data/processed/expression_matrix.csv', index_col=0)
+meta = pd.read_csv(ROOT / 'data/processed/sample_metadata.csv')
+expr = pd.read_csv(ROOT / 'data/processed/expression_matrix.csv', index_col=0)
 
 # Filter for condition 'R'
 meta_r = meta[meta['condition'] == 'R']
@@ -156,6 +156,15 @@ try:
         plt.plot(t_plot, y_plot_scaled, '-', label=f'Fitted (Shift={best_phi:.1f}h)')
         plt.title(labels[i])
         plt.legend()
+        
+        # Calculate R² and RMSE
+        pred_scaled_at_obs = a * pred_at_obs + b
+        ss_res = np.sum((row_obs - pred_scaled_at_obs)**2)
+        ss_tot = np.sum((row_obs - np.mean(row_obs))**2)
+        r2 = 1 - (ss_res / ss_tot)
+        rmse = np.sqrt(np.mean((row_obs - pred_scaled_at_obs)**2))
+        
+        print(f"{labels[i]:20s} | Phase Shift: {best_phi:5.2f}h | R²: {r2:6.4f} | RMSE: {rmse:8.2f}")
         
     plt.tight_layout()
     plt.savefig('figures/qc_preprocessing/estimation_fit_real_data_refined.png')

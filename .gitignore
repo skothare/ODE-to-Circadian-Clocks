@@ -1,5 +1,13 @@
 data/
 
-.gitignore
-
 __pycache__
+
+notebooks/debug_model.py
+
+# Old directories (refactored)
+src/
+tests/
+
+*.sty
+
+*.pdf

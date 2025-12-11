@@ -1,0 +1,4 @@
+Per mRNA             | Phase Shift:  9.21h | R^2: 0.0020 | RMSE:    73.29
+Cry mRNA             | Phase Shift:  8.00h | R^2: 0.1408 | RMSE:    39.94
+Bmal1 mRNA           | Phase Shift: 10.67h | R^2: 0.1423 | RMSE:    33.60
+Rev-Erb mRNA         | Phase Shift: 17.70h | R^2: 0.4105 | RMSE:    62.12

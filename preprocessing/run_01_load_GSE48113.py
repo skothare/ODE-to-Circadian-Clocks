@@ -7,11 +7,11 @@ import seaborn as sns
 import gzip
 
 # Setup paths
-ROOT = Path.cwd()
-if str(ROOT / 'src') not in sys.path:
-    sys.path.insert(0, str(ROOT / 'src'))
+ROOT = Path.cwd().parent.parent  # models/ode -> models -> ROOT
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-# Import from src
+# Import from preprocessing
 from preprocessing.gse48113 import parse_meta, read_agilent_fe, extract_expression, quantile_normalize
 
 # Data directories
