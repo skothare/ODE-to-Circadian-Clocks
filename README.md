@@ -1,4 +1,5 @@
 # ODE-to-Circadian-Clocks
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/78f319bc-942e-4b2f-9989-a9033701543a" />
 
 Modeling human circadian clock dynamics using mechanistic ODEs and data-driven approaches (SINDy, Neural ODEs).
 
