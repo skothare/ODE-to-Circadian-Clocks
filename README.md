@@ -31,4 +31,4 @@ We use the GSE48113 human blood transcriptome dataset (287 microarray samples, 2
 ## References
 
 - Leloup & Goldbeter (2004) - Mammalian circadian clock model
-- Archer et al. (2014) - [GSE48113 dataset] (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48113)
+- Archer et al. (2014) - [GSE48113 dataset](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48113)
